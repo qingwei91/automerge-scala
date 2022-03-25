@@ -6,9 +6,11 @@ case class MVRegister[A](
     existing: Set[(A, VectorClock.Clock)] = Set.empty,
     clock: VectorClock.Clock = VectorClock.empty
 ) extends CmRDT {
-  override type Op = (A, VectorClock.Clock)
+  type SetVal            = A
+  override type LocalOp  = SetVal
+  override type RemoteOp = (A, VectorClock.Clock)
 
-  override def sync(op: (A, Clock)): MVRegister[A] = {
+  override def syncRemote(op: (A, Clock)): MVRegister[A] = {
     val (value, opClock) = op
     val syncedClock      = clock.merge(opClock)
     if (existing.isEmpty) {
@@ -26,8 +28,8 @@ case class MVRegister[A](
       MVRegister(pid, updatedSet, syncedClock.increment(pid))
     }
   }
-
-  def change(newVal: A): (Op, MVRegister[A]) = {
+  
+  def change(newVal: SetVal): (RemoteOp, MVRegister[A]) = {
     val updatedClock = clock.increment(pid)
     // when update from local, we are sure this update is not concurrent to any existing value, it happens after
     // so we can throw them away
@@ -35,4 +37,5 @@ case class MVRegister[A](
     val newRegister = this.copy(existing = Set(newVal -> updatedClock), clock = updatedClock)
     op -> newRegister
   }
+
 }
