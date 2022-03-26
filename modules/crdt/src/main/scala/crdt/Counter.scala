@@ -1,13 +1,21 @@
 package crdt
 
-case class Counter(v: Double = 0.0) extends CmRDT {
+opaque type Counter = Double
+extension (x: Counter) {
+  def value: Double = x
+}
+
+given counterCRDT: CmRDT[Counter] with {
   type Increment         = Double
   override type RemoteOp = Increment
   override type LocalOp  = Increment
 
-  override def syncRemote(op: Increment): Counter = Counter(v + op)
+  extension (counter: Counter) {
+    override def syncRemote(op: Increment): Counter = counter.value + op
 
-  def change(delta: LocalOp): (RemoteOp, Counter) = {
-    delta -> Counter(v + delta)
+    override def change(delta: LocalOp): (RemoteOp, Counter) = {
+      delta -> (counter.value + delta)
+    }
   }
+
 }

@@ -1,8 +1,10 @@
 package crdt
 
-trait CmRDT {
+trait CmRDT[A] {
   type RemoteOp
   type LocalOp
-  def syncRemote(op: RemoteOp): O
-  def change(op: LocalOp): (RemoteOp, O)
+  extension (a: A) {
+    def syncRemote(op: RemoteOp): A
+    def change(op: LocalOp): (RemoteOp, A)
+  }
 }

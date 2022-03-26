@@ -18,11 +18,10 @@ object CmRDTSpec extends SimpleIOSuite {
 trait CmRDTTestModule { self: Expectations.Helpers =>
   type _RemoteOp
   type _LocalOp
+  type Data
 
-  type Data <: CmRDT {
-    type RemoteOp = _RemoteOp
-    type LocalOp  = _LocalOp
-  }
+  type C = CmRDT[Data] { type RemoteOp = _RemoteOp; type LocalOp = _LocalOp }
+  given c: C
 
   def repetition: Int
   def localOpGen: Gen[_LocalOp]
@@ -60,9 +59,9 @@ trait CmRDTTestModule { self: Expectations.Helpers =>
     } else {
       val (l, next) = st.seed.long
       val idx       = l % st.opsToA.size
-      val op        = st.opsToA(idx)
+      val op        = st.opsToA(idx.toInt)
       val updatedA  = st.dataA.syncRemote(op)
-      st.copy(dataA = updatedA, seed = next, opsToA = st.opsToA.filterNot(_ == op))
+      st.copy(dataA = updatedA, seed = next, opsToA = st.opsToA.filterNot(_ == op)) -> ()
     }
   }
   def randomBroadcastToB(): State[TestState, Unit] = State { st =>
@@ -71,9 +70,9 @@ trait CmRDTTestModule { self: Expectations.Helpers =>
     } else {
       val (l, next) = st.seed.long
       val idx       = l % st.opsToB.size
-      val op        = st.opsToB(idx)
+      val op        = st.opsToB(idx.toInt)
       val updatedB  = st.dataB.syncRemote(op)
-      st.copy(dataB = updatedB, seed = next, opsToB = st.opsToB.filterNot(_ == op))
+      st.copy(dataB = updatedB, seed = next, opsToB = st.opsToB.filterNot(_ == op)) -> ()
     }
   }
 
@@ -85,7 +84,7 @@ trait CmRDTTestModule { self: Expectations.Helpers =>
       b.syncRemote(op)
     }
 
-    st.copy(dataA = updatedA, dataB = updatedB, opsToA = Nil, opsToB = Nil)
+    st.copy(dataA = updatedA, dataB = updatedB, opsToA = Nil, opsToB = Nil) -> ()
   }
 
   def opsAreCommutative = {
