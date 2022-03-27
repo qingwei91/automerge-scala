@@ -2,40 +2,43 @@ package crdt
 
 import cats.effect._
 import cats.data.State
+import cats.Eval
 import weaver._
 import weaver.scalacheck._
 import org.scalacheck._
 import org.scalacheck.rng.Seed
 
-object CmRDTSpec extends SimpleIOSuite {
+object CmRDTSpec extends SimpleIOSuite with Checkers {
   // no need to prove associativity because CmRDT operation are not binary operations,
   // ie. its 2 domain are not the same
-  test("CmRDT operations are commutative") { () =>
-    IO.pure(success)
+  test("Counter is CRDT") { () =>
+    val counterIsCrDT =
+      new CmRDTTestModule[Counter](init = Counter(0.0), seed = 1000L, repetition = 20)
+        with Expectations.Helpers {
+        override def localOpGen: Gen[crdt.LocalOp] = Gen.double.map(_.asInstanceOf[crdt.LocalOp])
+
+        override def remoteOpGen: Gen[crdt.RemoteOp] = Gen.double.map(_.asInstanceOf[crdt.RemoteOp])
+      }
+
+    IO {
+      counterIsCrDT.opsAreCommutative
+    }
   }
+
 }
 
-trait CmRDTTestModule { self: Expectations.Helpers =>
-  type _RemoteOp
-  type _LocalOp
-  type Data
+trait CmRDTTestModule[Data](init: Data, seed: Long, repetition: Int)(using val crdt: CmRDT[Data]) {
+  self: Expectations.Helpers =>
 
-  type C = CmRDT[Data] { type RemoteOp = _RemoteOp; type LocalOp = _LocalOp }
-  given c: C
-
-  def repetition: Int
-  def localOpGen: Gen[_LocalOp]
-  def remoteOpGen: Gen[_RemoteOp]
-
-  def init: Data
-  def seed: Long
+  def localOpGen: Gen[crdt.LocalOp]
+  def remoteOpGen: Gen[crdt.RemoteOp]
 
   case class TestState(
       dataA: Data,
       dataB: Data,
       seed: Seed,
-      opsToA: List[_RemoteOp],
-      opsToB: List[_RemoteOp]
+      opsToA: List[crdt.RemoteOp],
+      opsToB: List[crdt.RemoteOp]
   )
 
   def getRandom(): State[TestState, Long] = State { st =>
@@ -87,7 +90,7 @@ trait CmRDTTestModule { self: Expectations.Helpers =>
     st.copy(dataA = updatedA, dataB = updatedB, opsToA = Nil, opsToB = Nil) -> ()
   }
 
-  def opsAreCommutative = {
+  def opsAreCommutative: Expectations = {
 
     val initTestState = TestState(init, init, Seed(seed), Nil, Nil)
 
@@ -102,21 +105,24 @@ trait CmRDTTestModule { self: Expectations.Helpers =>
       * assert the a and b are equivalent
       */
 
-    val randomizedLoop = (0 to repetition).foldLeft(State.empty[TestState, Unit]) { case (st, _) =>
-      for {
-        randomL <- getRandom()
-        choice = randomL % 4
-        _ <- choice match {
-          case 0 => randomChangeA()
-          case 1 => randomChangeB()
-          case 2 => randomBroadcastToA()
-          case 3 => randomBroadcastToB()
-          case _ => ???
-        }
-      } yield ()
-    }
+    val randomizedLoop: State[TestState, Unit] =
+      (0 to repetition).foldLeft(State.empty[TestState, Unit]) { case (st, _) =>
+        for {
+          randomL <- getRandom()
+          choice = math.abs(randomL) % 4
+          _ <- choice match {
+            case 0 => randomChangeA()
+            case 1 => randomChangeB()
+            case 2 => randomBroadcastToA()
+            case 3 => randomBroadcastToB()
+            case x => throw new UnsupportedOperationException(s"Unexpected value: $x")
+          }
+        } yield ()
+      }
 
-    randomizedLoop.flatMap(_ => clearRemainingOps()).run(initTestState)
+    val (resultState: TestState, _) =
+      randomizedLoop.flatMap(_ => clearRemainingOps()).run(initTestState).value
 
+    expect(resultState.dataA == resultState.dataB)
   }
 }
