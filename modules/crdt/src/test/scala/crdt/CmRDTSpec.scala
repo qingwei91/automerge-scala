@@ -3,18 +3,24 @@ package crdt
 import cats.effect._
 import cats.data.State
 import cats.Eval
+import cats.syntax.traverse._
+import cats.instances.list._
 import weaver._
 import weaver.scalacheck._
 import org.scalacheck._
 import org.scalacheck.rng.Seed
+import crdt.UnreliableNetwork
 
 object CmRDTSpec extends SimpleIOSuite with Checkers {
   // no need to prove associativity because CmRDT operation are not binary operations,
   // ie. its 2 domain are not the same
   test("Counter is CRDT") { () =>
     val counterIsCrDT =
-      new CmRDTTestModule[Counter](init = Counter(0.0), seed = 1000L, repetition = 20)
-        with Expectations.Helpers {
+      new CmRDTTestModule[Counter](
+        initData = List(Counter(0.0), Counter(0.0), Counter(0.0)),
+        seed = 1000L,
+        repetition = 20
+      ) with Expectations.Helpers {
         override def localOpGen: Gen[crdt.LocalOp] = Gen.double.map(_.asInstanceOf[crdt.LocalOp])
 
         override def remoteOpGen: Gen[crdt.RemoteOp] = Gen.double.map(_.asInstanceOf[crdt.RemoteOp])
@@ -27,102 +33,114 @@ object CmRDTSpec extends SimpleIOSuite with Checkers {
 
 }
 
-trait CmRDTTestModule[Data](init: Data, seed: Long, repetition: Int)(using val crdt: CmRDT[Data]) {
+trait CmRDTTestModule[Data](initData: List[Data], seed: Long, repetition: Int)(using
+    val crdt: CmRDT[Data],
+    eq: CanEqual[Data, Data]
+) {
   self: Expectations.Helpers =>
 
   def localOpGen: Gen[crdt.LocalOp]
   def remoteOpGen: Gen[crdt.RemoteOp]
 
   case class TestState(
-      dataA: Data,
-      dataB: Data,
       seed: Seed,
-      opsToA: List[crdt.RemoteOp],
-      opsToB: List[crdt.RemoteOp]
+      dataWithNetwork: List[(Data, UnreliableNetwork[crdt.RemoteOp])] = List.empty
   )
 
-  def getRandom(): State[TestState, Long] = State { st =>
-    val (l, next) = st.seed.long
-    st.copy(seed = next) -> l
-  }
-  def randomChangeA(): State[TestState, Unit] = State { st =>
-    val (remoteOp, nextA)  = st.dataA.change(localOpGen.pureApply(Gen.Parameters.default, st.seed))
-    val updatedRemoteOpToB = remoteOp :: st.opsToB
-    st.copy(dataA = nextA, seed = st.seed.next, opsToB = updatedRemoteOpToB) -> ()
-  }
-  def randomChangeB(): State[TestState, Unit] = State { st =>
-    val (remoteOp, nextB)  = st.dataB.change(localOpGen.pureApply(Gen.Parameters.default, st.seed))
-    val updatedRemoteOpToB = remoteOp :: st.opsToB
-    st.copy(dataB = nextB, seed = st.seed.next, opsToA = updatedRemoteOpToB) -> ()
+  private val initTestState = {
+    var _seed = Seed(seed)
+    val dtNetwork = initData.map { dt =>
+      val network = new UnreliableNetwork[crdt.RemoteOp](_seed.next)
+      _seed = _seed.next
+      dt -> network
+    }
+    TestState(
+      _seed,
+      dtNetwork
+    )
   }
 
-  def randomBroadcastToA(): State[TestState, Unit] = State { st =>
-    if (st.opsToA.isEmpty) {
-      st -> ()
-    } else {
-      val (l, next) = st.seed.long
-      val idx       = l % st.opsToA.size
-      val op        = st.opsToA(idx.toInt)
-      val updatedA  = st.dataA.syncRemote(op)
-      st.copy(dataA = updatedA, seed = next, opsToA = st.opsToA.filterNot(_ == op)) -> ()
+  def randomPositiveLong: State[TestState, Int] = State { st =>
+    val (l, next) = st.seed.long
+    st.copy(seed = next) -> math.abs(l.toInt)
+  }
+  def randomIntBetween(start: Int, end: Int): State[TestState, Int] = randomPositiveLong.map {
+    randL =>
+      val range  = end - start
+      val resInt = (randL % range) + start
+      resInt
+  }
+
+  def randomLocalUpdate: State[TestState, Unit] = {
+    randomPositiveLong.flatMap { randL =>
+      State { st =>
+        val dataIdx               = randL % st.dataWithNetwork.size
+        val (targetData, network) = st.dataWithNetwork(dataIdx)
+        val (remoteOp, updatedData) = targetData.change(
+          localOpGen.pureApply(Gen.Parameters.default, st.seed)
+        )
+        val updated = st.dataWithNetwork.map {
+          case (data, netw: UnreliableNetwork[crdt.RemoteOp]) if data != targetData =>
+            data -> netw.insert(remoteOp :: Nil)
+          case (td, net) => updatedData -> net
+        }
+        st.copy(seed = st.seed.next, dataWithNetwork = updated) -> ()
+      }
     }
   }
-  def randomBroadcastToB(): State[TestState, Unit] = State { st =>
-    if (st.opsToB.isEmpty) {
-      st -> ()
-    } else {
-      val (l, next) = st.seed.long
-      val idx       = l % st.opsToB.size
-      val op        = st.opsToB(idx.toInt)
-      val updatedB  = st.dataB.syncRemote(op)
-      st.copy(dataB = updatedB, seed = next, opsToB = st.opsToB.filterNot(_ == op)) -> ()
+  def randomRemoteSync: State[TestState, Unit] = {
+    for {
+      st          <- State.get[TestState]
+      pointToTake <- randomIntBetween(0, st.dataWithNetwork.size)
+      noOfData    <- randomIntBetween(pointToTake, st.dataWithNetwork.size)
+      sliceToSync = pointToTake.to(pointToTake + noOfData)
+      _ <- State.modify[TestState] { st =>
+        val updatedNetworks = st.dataWithNetwork.zipWithIndex.map {
+          case ((data, network), idx) if sliceToSync.contains(idx) =>
+            val (consumed, updatedNetwork) = network.consumeRandom
+            val updatedData = consumed.foldLeft(data) { case (dt, remoteOp) =>
+              dt.syncRemote(remoteOp)
+            }
+            updatedData -> updatedNetwork
+          case (pair, idx) => pair
+        }
+        st.copy(dataWithNetwork = updatedNetworks)
+      }
+    } yield {}
+
+  }
+
+  def randomDoSomething: State[TestState, Unit] = {
+    randomIntBetween(0, 2).flatMap { i =>
+      if (i == 0) {
+        randomLocalUpdate
+      } else {
+        randomRemoteSync
+      }
     }
   }
 
   def clearRemainingOps(): State[TestState, Unit] = State { st =>
-    val updatedA = st.opsToA.foldLeft(st.dataA) { case (a, op) =>
-      a.syncRemote(op)
+    val updatedNetworks = st.dataWithNetwork.map { case (dt, network) =>
+      val updatedDt = network.ls.foldLeft(dt) { case (_dt, op) =>
+        _dt.syncRemote(op)
+      }
+      updatedDt -> network
     }
-    val updatedB = st.opsToB.foldLeft(st.dataB) { case (b, op) =>
-      b.syncRemote(op)
-    }
-
-    st.copy(dataA = updatedA, dataB = updatedB, opsToA = Nil, opsToB = Nil) -> ()
+    st.copy(dataWithNetwork = updatedNetworks) -> ()
   }
 
   def opsAreCommutative: Expectations = {
-
-    val initTestState = TestState(init, init, Seed(seed), Nil, Nil)
-
-    /** Loop through repetition, in each loop randomly do one of these
-      *
-      * a) Pick an instance and perform change, then keep the ops in buffer
-      *
-      * b) Randomly pick an op from buffer and broadcast
-      *
-      * At the end, clear all buffer
-      *
-      * assert the a and b are equivalent
-      */
-
     val randomizedLoop: State[TestState, Unit] =
       (0 to repetition).foldLeft(State.empty[TestState, Unit]) { case (st, _) =>
-        for {
-          randomL <- getRandom()
-          choice = math.abs(randomL) % 4
-          _ <- choice match {
-            case 0 => randomChangeA()
-            case 1 => randomChangeB()
-            case 2 => randomBroadcastToA()
-            case 3 => randomBroadcastToB()
-            case x => throw new UnsupportedOperationException(s"Unexpected value: $x")
-          }
-        } yield ()
+        st.flatMap(_ => randomDoSomething)
       }
 
     val (resultState: TestState, _) =
       randomizedLoop.flatMap(_ => clearRemainingOps()).run(initTestState).value
 
-    expect(resultState.dataA == resultState.dataB)
+    val finalData = resultState.dataWithNetwork.map(_._1)
+    println(finalData)
+    expect(finalData.toSet.size == 1)
   }
 }

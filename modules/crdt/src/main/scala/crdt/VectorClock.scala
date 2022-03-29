@@ -4,9 +4,11 @@ object VectorClock {
   type ProcessId    = String
   opaque type Clock = Map[ProcessId, Int]
 
+  given ClockEQ: CanEqual[Clock, Clock] = CanEqual.derived
+
   def empty: Clock = Map.empty
 
-  sealed trait Causality
+  sealed trait Causality derives CanEqual
   case object IsAfter      extends Causality
   case object IsBefore     extends Causality
   case object IsEqual      extends Causality
