@@ -22,8 +22,6 @@ object CmRDTSpec extends SimpleIOSuite with Checkers {
         repetition = 20
       ) with Expectations.Helpers {
         override def localOpGen: Gen[crdt.LocalOp] = Gen.double.map(_.asInstanceOf[crdt.LocalOp])
-
-        override def remoteOpGen: Gen[crdt.RemoteOp] = Gen.double.map(_.asInstanceOf[crdt.RemoteOp])
       }
 
     IO {
@@ -31,6 +29,35 @@ object CmRDTSpec extends SimpleIOSuite with Checkers {
     }
   }
 
+  test("MVRegister is CRDT") { () =>
+    val registerIsCRDT = new CmRDTTestModule[MVRegister[Int]](
+      initData = List(
+        MVRegister[Int]("1", 0),
+        MVRegister[Int]("2", 0),
+        MVRegister[Int]("3", 0)
+      ),
+      seed = 1002L,
+      repetition = 20
+    ) with Expectations.Helpers {
+      override def localOpGen: Gen[crdt.LocalOp] = Gen.long.map(_.toInt.asInstanceOf[crdt.LocalOp])
+    }
+    IO {
+      registerIsCRDT.opsAreCommutative
+    }
+  }
+
+  pureTest("MVRegister") {
+    success
+//    val a = MVRegister[Int]("1")
+//    val b = MVRegister[Int]("2")
+//
+//    val (remote20, a20) = a.change(20)
+//    val (remote10, b10) = b.change(10)
+//    val updatedB        = b10.syncRemote(remote20)
+//    val updatedA        = a20.syncRemote(remote10)
+//
+//    expect.same(updatedA.existing, updatedB.existing)
+  }
 }
 
 trait CmRDTTestModule[Data](initData: List[Data], seed: Long, repetition: Int)(using
@@ -40,7 +67,6 @@ trait CmRDTTestModule[Data](initData: List[Data], seed: Long, repetition: Int)(u
   self: Expectations.Helpers =>
 
   def localOpGen: Gen[crdt.LocalOp]
-  def remoteOpGen: Gen[crdt.RemoteOp]
 
   case class TestState(
       seed: Seed,
@@ -140,7 +166,7 @@ trait CmRDTTestModule[Data](initData: List[Data], seed: Long, repetition: Int)(u
       randomizedLoop.flatMap(_ => clearRemainingOps()).run(initTestState).value
 
     val finalData = resultState.dataWithNetwork.map(_._1)
-    println(finalData)
+    pprint.pprintln(finalData)
     expect(finalData.toSet.size == 1)
   }
 }

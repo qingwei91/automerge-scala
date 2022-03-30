@@ -7,7 +7,8 @@ lazy val commonSettings: Seq[Def.Setting[_]] = Seq(
     "org.typelevel"       %% "cats-core"         % "2.7.0",
     "eu.timepit"          %% "refined"           % "0.9.28",
     "com.disneystreaming" %% "weaver-cats"       % "0.7.11" % Test,
-    "com.disneystreaming" %% "weaver-scalacheck" % "0.7.11" % Test
+    "com.disneystreaming" %% "weaver-scalacheck" % "0.7.11" % Test,
+    "com.lihaoyi"         %% "pprint"            % "0.7.0"  % Test
   ),
   testFrameworks += new TestFramework("weaver.framework.CatsEffect"),
   scalacOptions ++= Seq(

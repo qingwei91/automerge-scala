@@ -2,11 +2,13 @@ package crdt
 
 object VectorClock {
   type ProcessId    = String
-  opaque type Clock = Map[ProcessId, Int]
+  opaque type Clock = Map[ProcessId, Int] // refine this to PositiveInt
 
   given ClockEQ: CanEqual[Clock, Clock] = CanEqual.derived
 
-  def empty: Clock = Map.empty
+  // todo: empty clock does not makes sense
+  def empty: Clock                = Map.empty
+  def init(pid: ProcessId): Clock = Map(pid -> 1)
 
   sealed trait Causality derives CanEqual
   case object IsAfter      extends Causality
@@ -19,31 +21,17 @@ object VectorClock {
       if (v1 == v2) {
         IsEqual
       } else {
-        var v2Smaller = if (v1.size > v2.size) true else false
-        var v2Larger  = if (v1.size < v2.size) true else false
+        val v1HasLarger = v1.exists { case (id, i1) => i1 > v2.getOrElse(id, 0) }
+        val v2HasLarger = v2.exists { case (id, i2) => i2 > v1.getOrElse(id, 0) }
 
-        for ((key, v2V) <- v2) {
-          v1.get(key) match {
-            case Some(v1V) =>
-              val diff = v2V - v1V
-              if (diff > 0) {
-                v2Larger = true
-              } else if (diff < 0) {
-                v2Smaller = true
-              }
-            case None =>
-              // key in v2 but not in v1 means it is larger
-              v2Larger = true
-          }
+        (v1HasLarger, v2HasLarger) match {
+          case (true, true) => IsConcurrent
+          case (false, false) =>
+            throw new IllegalStateException("This should not happen, it means v1 and v2 are equal")
+          case (true, false) => IsBefore
+          case (false, true) => IsAfter
         }
 
-        if (v2Smaller && v2Larger) {
-          IsConcurrent
-        } else if (v2Smaller) {
-          IsBefore
-        } else {
-          IsAfter
-        }
       }
     }
     def increment(pid: ProcessId): Clock = {
@@ -61,7 +49,7 @@ object VectorClock {
             else { Set(pid -> b) }
           case (None, Some(b)) => Set(pid -> b)
           case (Some(a), None) => Set(pid -> a)
-          case (None, None)    => Set.empty
+          case (None, None)    => Set.empty // should not happen
         }
       }
 

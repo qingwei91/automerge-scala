@@ -11,6 +11,7 @@ object Counter {
     type Increment         = Double
     override type RemoteOp = Increment
     override type LocalOp  = Increment
+    override type ProjectValue = Counter
 
     extension (counter: Counter) {
       override def syncRemote(op: Increment): Counter = counter.value + op
@@ -18,6 +19,7 @@ object Counter {
       override def change(delta: LocalOp): (RemoteOp, Counter) = {
         delta -> (counter.value + delta)
       }
+      override def read: ProjectValue = counter
     }
 
   }
