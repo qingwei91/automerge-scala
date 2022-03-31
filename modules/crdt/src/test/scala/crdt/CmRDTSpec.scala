@@ -165,8 +165,7 @@ trait CmRDTTestModule[Data](initData: List[Data], seed: Long, repetition: Int)(u
     val (resultState: TestState, _) =
       randomizedLoop.flatMap(_ => clearRemainingOps()).run(initTestState).value
 
-    val finalData = resultState.dataWithNetwork.map(_._1)
-    pprint.pprintln(finalData)
+    val finalData = resultState.dataWithNetwork.map(_._1.read)
     expect(finalData.toSet.size == 1)
   }
 }
