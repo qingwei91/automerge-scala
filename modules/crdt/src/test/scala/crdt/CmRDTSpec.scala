@@ -60,6 +60,15 @@ object CmRDTSpec extends SimpleIOSuite with Checkers {
   }
 }
 
+/** This test works by randomly generating operations, and randomly applying them Then after all
+  * operations has been applied to all data, we expect all copies of data converge (ie. be
+  * equivalent)
+  *
+  * Note that CmRDT in general apply the same changes more than once, thus every operation is only
+  * applied once. CvRDT otoh can tolerate replay but typically is more expensive to send over the
+  * network
+  * @tparam Data
+  */
 trait CmRDTTestModule[Data](initData: List[Data], seed: Long, repetition: Int)(using
     val crdt: CmRDT[Data],
     eq: CanEqual[Data, Data]
