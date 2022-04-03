@@ -21,7 +21,8 @@ object CmRDTSpec extends SimpleIOSuite with Checkers {
         seed = 1000L,
         repetition = 20
       ) with Expectations.Helpers {
-        override def localOpGen: Gen[crdt.LocalOp] = Gen.double.map(_.asInstanceOf[crdt.LocalOp])
+        override def localOpGen(dt: Counter): Gen[crdtEvi.LocalOp] =
+          Gen.double.map(_.asInstanceOf[crdtEvi.LocalOp])
       }
 
     IO {
@@ -39,24 +40,45 @@ object CmRDTSpec extends SimpleIOSuite with Checkers {
       seed = 1002L,
       repetition = 20
     ) with Expectations.Helpers {
-      override def localOpGen: Gen[crdt.LocalOp] = Gen.long.map(_.toInt.asInstanceOf[crdt.LocalOp])
+      override def localOpGen(dt: MVRegister[Int]): Gen[crdtEvi.LocalOp] =
+        Gen.long.map(_.toInt.asInstanceOf[crdtEvi.LocalOp])
     }
     IO {
       registerIsCRDT.opsAreCommutative
     }
   }
 
-  pureTest("MVRegister") {
-    success
-//    val a = MVRegister[Int]("1")
-//    val b = MVRegister[Int]("2")
-//
-//    val (remote20, a20) = a.change(20)
-//    val (remote10, b10) = b.change(10)
-//    val updatedB        = b10.syncRemote(remote20)
-//    val updatedA        = a20.syncRemote(remote10)
-//
-//    expect.same(updatedA.existing, updatedB.existing)
+  pureTest("MVRegister handle concurrent update") {
+    val a = MVRegister[Int]("1", 0)
+    val b = MVRegister[Int]("2", 0)
+
+    val (remote20, a20) = a.change(20)
+    val (remote10, b10) = b.change(10)
+    val updatedB        = b10.syncRemote(remote20)
+    val updatedA        = a20.syncRemote(remote10)
+
+    expect.same(updatedA.existing, updatedB.existing)
+  }
+
+  test("RGA is CRDT") {
+    val rgaIsCRDT = new CmRDTTestModule[RGA[Int]](
+      initData = List(
+        RGA("1"),
+        RGA("2"),
+        RGA("3")
+      ),
+      seed = 1030L,
+      repetition = 20
+    ) with Expectations.Helpers {
+      override def localOpGen(dt: RGA[Int]): Gen[crdtEvi.LocalOp] = {
+        val evi = crdtEvi.asInstanceOf[PartialOrderCRDT[ReplicatedGrowableArray, RGAIndex, Int]]
+        // this does not work because to generate valid Op, we need access to current state
+        // the op is expressed in relate to existing state
+        ???
+      }
+    }
+//    rgaIsCRDT.opsAreCommutative
+    ignore("Cannot be implemented correctly with current constraint")
   }
 }
 
@@ -70,22 +92,22 @@ object CmRDTSpec extends SimpleIOSuite with Checkers {
   * @tparam Data
   */
 trait CmRDTTestModule[Data](initData: List[Data], seed: Long, repetition: Int)(using
-    val crdt: CmRDT[Data],
+    val crdtEvi: CmRDT[Data],
     eq: CanEqual[Data, Data]
 ) {
   self: Expectations.Helpers =>
 
-  def localOpGen: Gen[crdt.LocalOp]
+  def localOpGen(dt: Data): Gen[crdtEvi.LocalOp]
 
   case class TestState(
       seed: Seed,
-      dataWithNetwork: List[(Data, UnreliableNetwork[crdt.RemoteOp])] = List.empty
+      dataWithNetwork: List[(Data, UnreliableNetwork[crdtEvi.RemoteOp])] = List.empty
   )
 
   private val initTestState = {
     var _seed = Seed(seed)
     val dtNetwork = initData.map { dt =>
-      val network = new UnreliableNetwork[crdt.RemoteOp](_seed.next)
+      val network = new UnreliableNetwork[crdtEvi.RemoteOp](_seed.next)
       _seed = _seed.next
       dt -> network
     }
@@ -112,10 +134,10 @@ trait CmRDTTestModule[Data](initData: List[Data], seed: Long, repetition: Int)(u
         val dataIdx               = randL % st.dataWithNetwork.size
         val (targetData, network) = st.dataWithNetwork(dataIdx)
         val (remoteOp, updatedData) = targetData.change(
-          localOpGen.pureApply(Gen.Parameters.default, st.seed)
+          localOpGen(targetData).pureApply(Gen.Parameters.default, st.seed)
         )
         val updated = st.dataWithNetwork.map {
-          case (data, netw: UnreliableNetwork[crdt.RemoteOp]) if data != targetData =>
+          case (data, netw: UnreliableNetwork[crdtEvi.RemoteOp]) if data != targetData =>
             data -> netw.insert(remoteOp :: Nil)
           case (td, net) => updatedData -> net
         }
