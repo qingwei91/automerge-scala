@@ -33,22 +33,15 @@ package crdt
   */
 trait PartialOrderCRDT[Col[_, _], Key, Value] extends CmRDT[Col[Key, Value]] {
 
-  sealed trait PartialOrderOps
-  case class InsertAfterA(anchor: Key, value: Value) extends PartialOrderOps
-  case class Remove(key: Key)                        extends PartialOrderOps
+  sealed trait _LocalOps
+  case class LocalInsertAfterA(anchor: Key, value: Value) extends _LocalOps
+  case class LocalRemove(key: Key)                        extends _LocalOps
 
-  override type LocalOp  = PartialOrderOps
-  override type RemoteOp = PartialOrderOps
+  sealed trait _RemoteOps
+  case class RemoteInsertByKey(key: Key, value: Value) extends _RemoteOps
+  case class RemoteRemove(key: Key)                    extends _RemoteOps
+  case object Noop                                     extends _RemoteOps
 
-  def insertXAfterA(col: Col[Key, Value], anchor: Key, addedValue: Value): Col[Key, Value]
-  def remove(col: Col[Key, Value], toRemove: Key): Col[Key, Value]
-
-  extension (ca: Col[Key, Value]) {
-    def syncRemote(op: RemoteOp): Col[Key, Value] = ca.change(op)._2
-
-    def change(op: LocalOp): (RemoteOp, Col[Key, Value]) = op match {
-      case InsertAfterA(anchor, value) => op -> this.insertXAfterA(ca, anchor, value)
-      case Remove(value)               => op -> this.remove(ca, value)
-    }
-  }
+  override type LocalOp  = _LocalOps
+  override type RemoteOp = _RemoteOps
 }

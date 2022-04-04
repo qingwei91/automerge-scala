@@ -74,11 +74,25 @@ object CmRDTSpec extends SimpleIOSuite with Checkers {
         val evi = crdtEvi.asInstanceOf[PartialOrderCRDT[ReplicatedGrowableArray, RGAIndex, Int]]
         // this does not work because to generate valid Op, we need access to current state
         // the op is expressed in relate to existing state
-        ???
+        val randomInsert = for {
+          pickAKey  <- Gen.oneOf(dt.internal.map { case (k, v) => k })
+          randomVal <- Gen.long.map(_.toInt)
+        } yield {
+          evi.LocalInsertAfterA(pickAKey, randomVal).asInstanceOf[crdtEvi.LocalOp]
+        }
+
+        val randomDel = for {
+          pickAKey <- Gen.oneOf(dt.internal.map { case (k, v) => k })
+        } yield {
+          evi.LocalRemove(pickAKey).asInstanceOf[crdtEvi.LocalOp]
+        }
+
+        Gen.oneOf[crdtEvi.LocalOp](randomInsert, randomDel)
       }
     }
-//    rgaIsCRDT.opsAreCommutative
-    ignore("Cannot be implemented correctly with current constraint")
+    IO {
+      rgaIsCRDT.opsAreCommutative
+    }
   }
 }
 
