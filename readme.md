@@ -8,9 +8,10 @@ Currently I've only implemented the following CRDT (with Test!)
 
 * Multi-Value Register
 * Counter
+* Replicated Growable Array (aka RGA)
 
 ## Todo
 
-- [ ] Implement CRDT for Text
+- [x] Implement CRDT for Text
 - [ ] Implement CRDT for JSON, described [here](https://arxiv.org/pdf/1608.03960.pdf)
 - [ ] Implement Automerge
