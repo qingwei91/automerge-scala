@@ -29,7 +29,35 @@ object RGAIndex {
   }
 }
 
-// source: https://hal.inria.fr/inria-00555588/document
+/** This trait expresses the idea of Replicated Growable Array described in
+  * https://hal.inria.fr/inria-00555588/document
+  *
+  * It is a multi-value data type, ie. a collection of data, it supports adding a value into the
+  * collection and removal of the value.
+  *
+  * In theory, it is convergent iff there exists a partial order of the value type `A`, when A has a
+  * partial order, there are a few concurrent scenario that we need to consider:
+  *
+  *   1. Concurrent Add and Remove of the same value
+  *   1. Concurrent add of multiple values that depends on the same prior value
+  *   1. Concurrent add and removal of values with dependency
+  *
+  * The 1st case is solved by 2 rules:
+  *
+  *   1. Only execute remove if a value has been added.
+  *   1. Values should be unique, for example 2 at T0 and 2 and T2 should not be considered equal in
+  *      this context.
+  *
+  * The 2nd and 3rd case are solved by partial order (or total order depending on implementation).
+  * If there exists a partial order, then we know that which value will come next even if a prior
+  * element has been modified concurrently. For example, given 1 -> 2 -> 5 -> 6, if we concurrently
+  * remove 2 and 5, we know that 6 should follow 1 because or partial ordering.
+  *
+  * Note that while Partial Order is enough to reason about the behavior, for RGA, we use Total
+  * Order, meaning there's a strict order. I havent figure out how to encode the more abstract
+  * Add-Remove Partial Order datatype in code without committing to concrete implementation, would
+  * be a good exercise.
+  */
 case class ReplicatedGrowableArray[K: Ordering, A](
     pid: String,
     localTime: PosInt,
@@ -40,9 +68,20 @@ case class ReplicatedGrowableArray[K: Ordering, A](
 }
 
 object ReplicatedGrowableArray {
-  given rgaCmRDT[A]: PartialOrderCRDT[ReplicatedGrowableArray, RGAIndex, A] with {
+  sealed trait RGALocal[+A]
+  case class LocalInsertAfterA[A](anchor: RGAIndex, value: A) extends RGALocal[A]
+  case class LocalRemove(key: RGAIndex)                       extends RGALocal[Nothing]
+
+  sealed trait RGARemote[+A]
+  case class RemoteInsertByKey[A](key: RGAIndex, value: A) extends RGARemote[A]
+  case class RemoteRemove(key: RGAIndex)                   extends RGARemote[Nothing]
+  case object Noop                                         extends RGARemote[Nothing]
+
+  given rgaCmRDT[A]: CmRDT[RGA[A]] with {
 
     override type ProjectValue = List[A]
+    override type LocalOp      = RGALocal[A]
+    override type RemoteOp     = RGARemote[A]
 
     extension (rga: RGA[A]) {
       override def read: ProjectValue = rga.externals
