@@ -1,26 +1,26 @@
 package crdt
 
 import cats.kernel.Order
-import crdt.VectorClock._
+import crdt.VersionVector._
 
 case class MVRegister[A](
     pid: ProcessId,
-    existing: Set[(A, VectorClock.Clock)],
-    clock: VectorClock.Clock
+    existing: Set[(A, VersionVector.Clock)],
+    clock: VersionVector.Clock
 )
 
 object MVRegister {
   def apply[A](pid: ProcessId, a: A): MVRegister[A] = MVRegister(
     pid = pid,
-    existing = Set(a -> VectorClock.init(pid)),
-    clock = VectorClock.init(pid)
+    existing = Set(a -> VersionVector.init(pid)),
+    clock = VersionVector.init(pid)
   )
 
   given mvRegCRDT[A]: CmRDT[MVRegister[A]] with {
     type SetVal                = A
     override type LocalOp      = SetVal
-    override type RemoteOp     = (A, VectorClock.Clock)
-    override type ProjectValue = Either[A, Set[(A, VectorClock.Clock)]]
+    override type RemoteOp     = (A, VersionVector.Clock)
+    override type ProjectValue = Either[A, Set[(A, VersionVector.Clock)]]
 
     extension (register: MVRegister[A]) {
       override def syncRemote(op: (A, Clock)): MVRegister[A] = {
@@ -40,14 +40,14 @@ object MVRegister {
           */
 
         val updateLargeClock = register.existing.map { case v @ (_, clock) =>
-          if (clock.compare(opClock) == VectorClock.IsAfter) {
+          if (clock.compare(opClock) == VersionVector.IsAfter) {
             op
           } else {
             v
           }
         }
         val allConcurrent = updateLargeClock.forall { case (_, clock) =>
-          clock.compare(opClock) == VectorClock.IsConcurrent
+          clock.compare(opClock) == VersionVector.IsConcurrent
         }
         val updatedSet = if (allConcurrent) {
           updateLargeClock.incl(op)

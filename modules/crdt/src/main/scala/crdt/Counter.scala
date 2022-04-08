@@ -8,9 +8,9 @@ object Counter {
   }
 
   given counterCRDT: CmRDT[Counter] with {
-    type Increment         = Double
-    override type RemoteOp = Increment
-    override type LocalOp  = Increment
+    type Increment             = Double
+    override type RemoteOp     = Increment
+    override type LocalOp      = Increment
     override type ProjectValue = Counter
 
     extension (counter: Counter) {

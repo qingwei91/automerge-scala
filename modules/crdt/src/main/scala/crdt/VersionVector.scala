@@ -1,6 +1,6 @@
 package crdt
 
-object VectorClock {
+object VersionVector {
   type ProcessId    = String
   opaque type Clock = Map[ProcessId, Int] // refine this to PositiveInt
 
