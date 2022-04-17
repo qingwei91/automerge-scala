@@ -3,7 +3,7 @@ package crdt
 import cats.effect._
 import cats.data.State
 import cats.Eval
-import cats.syntax.traverse._
+import cats.syntax.all._
 import cats.instances.list._
 import weaver._
 import weaver.scalacheck._
@@ -104,8 +104,7 @@ object CmRDTSpec extends SimpleIOSuite with Checkers {
   * @tparam Data
   */
 trait CmRDTTestModule[Data](initData: List[Data], seed: Long, repetition: Int)(using
-    val crdtEvi: CmRDT[Data],
-    eq: CanEqual[Data, Data]
+    val crdtEvi: CmRDT[Data]
 ) {
   self: Expectations.Helpers =>
 
@@ -179,7 +178,7 @@ trait CmRDTTestModule[Data](initData: List[Data], seed: Long, repetition: Int)(u
 
   }
 
-  def randomDoSomething: State[TestState, Unit] = {
+  def randomLocalChangeOrRemoteSync: State[TestState, Unit] = {
     randomIntBetween(0, 2).flatMap { i =>
       if (i == 0) {
         randomLocalUpdate
@@ -188,8 +187,7 @@ trait CmRDTTestModule[Data](initData: List[Data], seed: Long, repetition: Int)(u
       }
     }
   }
-
-  def clearRemainingOps(): State[TestState, Unit] = State { st =>
+  def clearRemainingRemoteOps(): State[TestState, Unit] = State { st =>
     val updatedNetworks = st.dataWithNetwork.map { case (dt, network) =>
       val updatedDt = network.ls.foldLeft(dt) { case (_dt, op) =>
         _dt.syncRemote(op)
@@ -202,11 +200,11 @@ trait CmRDTTestModule[Data](initData: List[Data], seed: Long, repetition: Int)(u
   def opsAreCommutative: Expectations = {
     val randomizedLoop: State[TestState, Unit] =
       (0 to repetition).foldLeft(State.empty[TestState, Unit]) { case (st, _) =>
-        st.flatMap(_ => randomDoSomething)
+        st.flatMap(_ => randomLocalChangeOrRemoteSync)
       }
 
     val (resultState: TestState, _) =
-      randomizedLoop.flatMap(_ => clearRemainingOps()).run(initTestState).value
+      randomizedLoop.flatMap(_ => clearRemainingRemoteOps()).run(initTestState).value
 
     val finalData = resultState.dataWithNetwork.map(_._1.read)
     expect(finalData.toSet.size == 1)
