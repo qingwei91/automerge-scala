@@ -1,11 +1,10 @@
-## WIP
+## Overview
 
-Intent: I wish to replicate [Automerge](https://github.com/automerge/automerge) in scala, for learning and for fun.
+This is an exercise for me to try out Scala 3, and to learn more about CRDT. I am using a typeclass approach, this allow easy code reuse.
 
-I am starting by implementing some common CRDT, documented in this [survey study](https://hal.inria.fr/inria-00555588/document)
+I implemented some common CRDTs, documented in this [survey study](https://hal.inria.fr/inria-00555588/document)
 
-Currently I've only implemented the following CRDT (with Test!) 
-
+So far, I've implemented the following (with test)
 * Multi-Value Register
 * Counter
 * Replicated Growable Array (aka RGA)
@@ -14,4 +13,3 @@ Currently I've only implemented the following CRDT (with Test!)
 
 - [x] Implement CRDT for Text
 - [ ] Implement CRDT for JSON, described [here](https://arxiv.org/pdf/1608.03960.pdf)
-- [ ] Implement Automerge
